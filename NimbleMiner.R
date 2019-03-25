@@ -79,8 +79,7 @@ ui <- fluidPage(
                                               icon = icon("keyboard-o")
                                      ),
                                      tabPanel("Load new simclins from file",
-                                              fileInput("loadNewSimclinsFromCSV", label = "Please, upload .csv file with one column of simclins for every category. Specify category title in the column",accept = c("text/csv",
-                                                                                                                                                            "text/comma-separated-values,text/plain",".csv")),
+                                              fileInput("loadNewSimclinsFromCSV", label = "Please, upload .csv file with one column of simclins for every category. Specify category title in the column",accept = c("text/csv",".csv")),
                                               actionButton("loadNewSimclinsFromCSV_click", "Upload", icon = icon("upload")),
                                               icon = icon("file-text-o")
                                      )
@@ -379,7 +378,7 @@ server <- function(input, output, session) {
         selectedCategory_str <- ""
       }
     }
-    
+    return(selectedCategory_str)
   }
   
   #############################################################################################################
@@ -454,6 +453,7 @@ server <- function(input, output, session) {
     result_list<-treedf2list(simclins_tree_df)
     result_list
   }
+  
   #############################################################################################################
   # Function saveCategoryTree_settings - save list structure of tree to the csv - file
   #############################################################################################################
@@ -827,26 +827,29 @@ server <- function(input, output, session) {
   # Function addNewSimclin - adds the new record to the simclin's list
   #############################################################################################################
   addNewSimclin <- function(new_simclin_str,df_new_simclins,category = NULL,fl_show_msg_about_duplicates = TRUE, fl_from_file = FALSE ){
+
+    original_simclin_str = new_simclin_str
+    # trim the new simclin
+    new_simclin_str = enc2utf8(new_simclin_str)
+    new_simclin_str = gsub("_", " ", trimws(new_simclin_str))
+    new_simclin_str = removePunctuation(new_simclin_str,preserve_intra_word_contractions = FALSE,preserve_intra_word_dashes = FALSE,ucp = TRUE)
+    new_simclin_str = gsub("[[:space:]]", "_", trimws(new_simclin_str))
+    new_simclin_str=stri_trans_tolower(new_simclin_str)    
     
+        
     if(nrow(df_simclins)>0 && any(df_simclins[df_simclins[,'Category']==category,]$Simclins==new_simclin_str)) {
       if (fl_show_msg_about_duplicates)
         showModal(modalDialog(title = "Error message",  paste0("The simclin \"",new_simclin_str,"\" is in the list already!"),easyClose = TRUE))
+      print(paste0("Duplicated simclin: ",original_simclin_str," to existing simclin ", new_simclin_str," with same category ",category))
       return(FALSE)
     } else {
-      # trim the new simclin
-      new_simclin_str = enc2utf8(new_simclin_str)
-      new_simclin_str = gsub("_", " ", trimws(new_simclin_str))
-      new_simclin_str = removePunctuation(new_simclin_str,preserve_intra_word_contractions = FALSE,preserve_intra_word_dashes = FALSE,ucp = TRUE)
-      new_simclin_str = gsub("[[:space:]]", "_", trimws(new_simclin_str))
-      new_simclin_str=stri_trans_tolower(new_simclin_str)
+
       
       if(new_simclin_str=="") {
         if (fl_show_msg_about_duplicates)
           showModal(modalDialog(title = "Error message",  paste0("The simclin is empty!"),easyClose = TRUE))
         return(FALSE)
       } 
-      
-      cat("Add new simclin: ",new_simclin_str)
       
       #add button 'Examples'
       examples_str <- paste0("<button type='button' class='btn btn-secondary load' onclick='Shiny.onInputChange(\"lastClickId\",this.id);' id='next_examples_for_",new_simclin_str,"#0'><i class='icon-left'></i>Examples</button>")
@@ -994,7 +997,7 @@ server <- function(input, output, session) {
         
         if (fl_selectAllSimilar_terms){
           fl_selectAllSimilar_terms <<- FALSE
-          selected_rows <- c(1:nrow(df_similar_terms))
+          selected_rows <-  match(rownames(df_similar_terms_of_cat),rownames(df_similar_terms))  
         } else if (fl_deselectAllSimilar_terms){
           fl_deselectAllSimilar_terms <<- FALSE
           selected_rows <- NULL
@@ -1006,20 +1009,22 @@ server <- function(input, output, session) {
           selected_rows <- unique(selected_rows)
           selected_rows <-sort(selected_rows)
         }
-        output$similar_terms_table = DT::renderDataTable({DT::datatable(df_similar_terms,selection = list(target = 'row', selected=selected_rows),
+        df_similar_terms$Category <- factor(df_similar_terms$Category)
+        output$similar_terms_table = DT::renderDataTable(df_similar_terms,selection = list(target = 'row', selected=selected_rows),
                                                                         filter = list(position = 'top', clear = FALSE),
                                                                         options = list(order=list(list(4,'asc'),list(2,'desc')),pageLength = 100,columnDefs = list(list(targets = c(2,3,4,5), searchable = FALSE))
-                                                                                       ,searchCols = list(NULL, list(search = selectedCategory_str),NULL,NULL,NULL,NULL)
+                                                                                       ,searchCols = list(NULL, list(search = paste0('["',selectedCategory_str,'"]')),NULL,NULL,NULL,NULL)
                                                                                        
                                                                         )
                                                                         ,callback=DT::JS('table.on("page.dt",function() {var topPos = document.getElementById("div_similar_terms").offsetTop; window.scroll(0,topPos);})')
-                                                                        ,colnames = c("Similar terms","Category","Distance","By simclins",'Lexical variant of',"Examples"),rownames=FALSE, escape = FALSE)})
+                                                                        ,colnames = c("Similar terms","Category","Distance","By simclins",'Lexical variant of',"Examples"),rownames=FALSE, escape = FALSE)
         write.csv(df_similar_terms, file = paste0(app_dir,"similar_terms.csv"))
       } else {
+        df_similar_terms$Category <- factor(df_similar_terms$Category)
         output$similar_terms_table = DT::renderDataTable(df_similar_terms,
                                                          filter = list(position = 'top', clear = FALSE),
                                                          options = list(order=list(list(4,'asc'),list(2,'desc')),pageLength = 100,columnDefs = list(list(targets = c(2,3,4,5), searchable = FALSE))
-                                                                        ,searchCols = list(NULL, list(search = selectedCategory_str),NULL,NULL,NULL,NULL)
+                                                                        ,searchCols = list(NULL, list(search = paste0('["',selectedCategory_str,'"]')),NULL,NULL,NULL,NULL)
                                                                         
                                                          )
                                                          ,callback=DT::JS('table.on("page.dt",function() {var topPos = document.getElementById("div_similar_terms").offsetTop; window.scroll(0,topPos);})')
@@ -1350,11 +1355,11 @@ server <- function(input, output, session) {
                                                                ,searchCols = list(NULL, list(search =  paste0('["',userSettings$selectedCategory,'"]')),NULL,NULL)
                                                                # ,searchCols = list(NULL, list(regex = TRUE, caseInsensitive = FALSE, search =  '^swall$',smart = FALSE),NULL,NULL)
                                                 ),colnames = c("Simclins","Category","Processed","Examples"),rownames=FALSE, escape = FALSE)
-    
-    output$similar_terms_table = DT::renderDataTable({df_similar_terms},filter = list(position = 'top', clear = FALSE), options = list(pageLength = 100,stateSave = TRUE,order=list(2,'desc') ,columnDefs = list(list(targets = c(2,3,4,5), searchable = FALSE))
-                                                                                                                                       # ,searchCols = list(NULL, list(search =  paste0('["',userSettings$selectedCategory,'"]')),NULL,NULL,NULL)
-                                                                                                                                       ,searchCols = list(NULL, list(search =  userSettings$selectedCategory),NULL,NULL,NULL)
-                                                                                                                                       
+    df_similar_terms$Category <- factor(df_similar_terms$Category)
+    output$similar_terms_table = DT::renderDataTable(df_similar_terms,
+                                                     filter = list(position = 'top', clear = FALSE), 
+                                                     options = list(order=list(2,'desc') ,pageLength = 100,stateSave = TRUE,columnDefs = list(list(targets = c(2,3,4,5), searchable = FALSE))
+                                                              ,searchCols = list(NULL, list(search =  paste0('["',userSettings$selectedCategory,'"]')),NULL,NULL,NULL)
                                                                                                                                        
     )#,colnames = c("Similar terms","Category","Distance","By simclins","Examples")
     ,callback=DT::JS('table.on("page.dt",function() {var topPos = document.getElementById("div_similar_terms").offsetTop; window.scroll(0,topPos);})')
@@ -1723,7 +1728,7 @@ server <- function(input, output, session) {
         category_str <- addNewCategoryToTree(colnames(df_new_simclins)[i],FALSE,TRUE)
 
         if (category_str!=""){
-          progress$set(message = paste0('Loading simclins to category ',category_str,' from the file...'),value = 3)
+          progress$set(message = paste0('Loading simclins to category ',category_str,'...'),value = 3)
           fl_new_uploaded_simclins <- lapply(df_new_simclins[,i],addNewSimclin,fl_show_msg_about_duplicates = FALSE,category = category_str)
           fl_new_simclins <- c(fl_new_uploaded_simclins,fl_new_simclins)
         }  
@@ -1731,7 +1736,12 @@ server <- function(input, output, session) {
       
       if(any(fl_new_simclins)){
         logAction(userId = currentUserId, operation = "Load user simclins from csv file",parameters = newSimclinsFile$name, valueAfter = paste0(as.character(sum(as.numeric(fl_new_simclins)))," simclins were loaded from the file."))
-        refreshTable('simclins')
+        #update the category tree in the settings section
+        filename <- paste0(app_dir,"simclins_tree.csv")
+        simclins_tree_json <-  readLines(filename,encoding="UTF-8")
+        simclins_tree_df<-jsonlite::fromJSON(simclins_tree_json)
+        result_list<-treedf2list(simclins_tree_df)
+        updateTree(session,"simclins_tree_settings",result_list)
       }  
       
       showModal(modalDialog(title = "Information",  paste0("The ",as.character(sum(as.numeric(fl_new_simclins)))," simclins were loaded from the file!"),easyClose = TRUE))
@@ -3286,8 +3296,11 @@ server <- function(input, output, session) {
             }  
             
             #update the category tree in the settings section
+            
             result_list<-treedf2list(simclins_tree_df)
-            updateTree(session,"simclins_tree_settings",result_list)
+            if (!fl_background_mode){  
+              updateTree(session,"simclins_tree_settings",result_list)
+            }  
 
             #clean the input control
             if (!fl_background_mode){            
